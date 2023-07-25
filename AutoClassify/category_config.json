@@ -1,0 +1,26 @@
+{
+    "personal" : {
+        "key"         : ["gender", "age", "home_city"],
+		"format"	  : ["object", "values", "object"]
+    },
+    "purchasetime" : {
+        "key"         : ["midnight", "morning", "noon", "afternoon", "night"],
+		"format"	  : ["values", "values", "values", "values", "values"]
+    },
+	"prefer":{
+		"key"		  : ["weekday", "weekend"],
+		"format"	  : ["object", "object"]
+	},
+	"rfm" : {
+		"key"         : ["rfm_recency", "rfm_frequency", "rfm_monetary"],
+		"format"	  : ["values", "values", "values"]
+	}, 
+    "calculated" : {
+        "key"         : ["cv_ratio", "aov", "cv"],
+  	  	"format"	  : ["values", "values", "values"]
+    }, 
+	"area" : {
+		"key"		  : ["area_01", "area_02", "area_03", "area_04", "area_05", "area_06", "area_07", "area_09", "area_10", "area_11"],
+		"format"	  : ["object", "object", "object", "object", "object", "object", "object", "object", "object", "object"]
+	}
+}
