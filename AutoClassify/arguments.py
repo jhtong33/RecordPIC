@@ -1,13 +1,45 @@
+#!/usr/bin/env python
+# Copyright 2023 Jing-Hui Tong, Data Center, President Information Corporation
+#
+# This file is part of Clustering.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+"""
+
+Module containing the main utility functions used in the `Clustering` scripts
+that accompany this package.
+
+"""
+# -*- coding: utf-8 -*-
 from argparse import ArgumentParser
 from numpy import nan
 import glob, os 
 import pandas as pd
 
 def get_arguments(argv = None):
-    parser  =  ArgumentParser(
+    
+    parser = ArgumentParser(
         usage = "python %(prog)s --file [filename] --pma [no.] -N [number]/-A [options]",
         description = "")
         
+        
+    # General Settings    
     parser.add_argument(
         "-f", "-F", "--file",
         action = "store",
@@ -50,7 +82,7 @@ def get_arguments(argv = None):
         default = False,
         help = "Specify to increase verbosity. [Default is False]")       
         
-         
+    # Method Settings   
     MethodGroup = parser.add_argument_group(
         title = "Cluster method",
         description = "***** Choosing one method to classify dataset. ")
@@ -97,7 +129,7 @@ def get_arguments(argv = None):
         type = str,
         dest = "selectMethod",
         default = "elbow",
-        help = "Choose the method to find the best number of cluster. Options include: " +
+        help = "Choose method to find the best number of cluster. Options include: " +
         "'elbow', 'calinski-harabasz', 'davies-bouldin', 'silhouette'. Detail setting from website: "+
         "https://reurl.cc/M8mr9K [Default is 'elbow']")
     AutoGroup.add_argument(
@@ -173,6 +205,10 @@ def get_arguments(argv = None):
         
     args  =  parser.parse_args(argv)  
     
+    #==========================================================================================
+    #==========================================================================================
+    #==========================================================================================
+    ### Fool Proofing
     
     if len(args.filename) > 1:
         try:
@@ -227,7 +263,7 @@ def get_arguments(argv = None):
     elif args.AutoCluster == False and args.numofCluster is None:
         parser.error(f"Please select -a or -n [number] to analyze. ")
         
-    if args.selectMethod not in ["elbow", "calinski-harabasz", "davies-bouldin"]:
+    if args.selectMethod not in ["elbow", "calinski-harabasz", "davies-bouldin", "silhouette"]:
         parser.error(f"Please check the option: --auto-method = {args.selectMethod}")
         
     if args.rfm_level not in ["median", "mode", "average"]:

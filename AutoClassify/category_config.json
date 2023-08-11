@@ -1,6 +1,6 @@
 {
     "personal" : {
-        "key"         : ["gender", "age", "home_city"],
+        "key"         : ["sex", "age", "home_city"],
 		"format"	  : ["object", "values", "object"]
     },
     "purchasetime" : {
@@ -22,5 +22,9 @@
 	"area" : {
 		"key"		  : ["area_01", "area_02", "area_03", "area_04", "area_05", "area_06", "area_07", "area_09", "area_10", "area_11"],
 		"format"	  : ["object", "object", "object", "object", "object", "object", "object", "object", "object", "object"]
+	},
+	"active" : {
+		"key"		  : ["active_city", "active_region"],
+		"format"	  : ["object", "object"]
 	}
 }
