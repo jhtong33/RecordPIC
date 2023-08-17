@@ -1,0 +1,6 @@
+scrapy
+fake_useragent
+boto3
+awslambdaric
+crochet
+botocore
