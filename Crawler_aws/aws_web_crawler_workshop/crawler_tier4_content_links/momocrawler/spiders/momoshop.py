@@ -2,14 +2,12 @@ import hashlib
 import json
 import os
 import threading
-from urllib.parse import urlparse
-
 from scrapy_selenium import SeleniumRequest
 import botocore
 import scrapy
 from fake_useragent import UserAgent
 import boto3
-from selenium.common.exceptions import NoAlertPresentException, UnexpectedAlertPresentException
+from selenium.common.exceptions import UnexpectedAlertPresentException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.wait import WebDriverWait
@@ -18,7 +16,6 @@ ua = UserAgent()
 region = os.getenv('REGION')
 sqs = boto3.client('sqs', region_name=region, config=botocore.client.Config(max_pool_connections=500))
 s3 = boto3.client('s3', region_name=region, config=botocore.client.Config(max_pool_connections=500))
-region = os.getenv('REGION')
 export_to_s3 = os.getenv('EXPORT_TO_S3')
 queue_tier4_content_links = os.getenv('QUEUE_TIER4_CONTENT_LINKS')
 s3_tier4_content_links = os.getenv('S3_TIER4_CONTENT_LINKS')
@@ -52,23 +49,13 @@ class MomoshopSpider(scrapy.Spider):
 
     def start_requests(self):
         # Start the initial request to fetch category links
-        print("Starting start_requests")
+        # print("Starting start_requests")
         if self.runner.target_url == "":
             target_url = json.loads(self.runner.tier4_category_object['Body'])['category_link']
         else:
             target_url = self.runner.target_url
-        headers = {"Host": urlparse(target_url).netloc,
-                   'Accept-Encoding': 'gzip, deflate, br',
-                   'Accept-Language': 'en-US,en;q=0.9,zh-TW;q=0.8,zh;q=0.7,zh-CN;q=0.6,ja;q=0.5',
-                   'Sec-Fetch-Dest': 'document',
-                   'Sec-Fetch-Mode': 'navigate',
-                   'Sec-Fetch-Site': 'none',
-                   'Upgrade-Insecure-Requests': '1',
-                   "Referer": "https://www.momoshop.com.tw/main/Main.jsp",
-                   "User-Agent": ua.random}
-        print(f'target_url:{target_url}')
+        # print(f'target_url:{target_url}')
         yield SeleniumRequest(url=target_url,
-                              headers=headers,
                               callback=self.parse,
                               wait_time=20,
                               errback=self.error_handle,
@@ -88,9 +75,7 @@ class MomoshopSpider(scrapy.Spider):
     def parse(self, response, **kwargs):
         try:
             # Parse the main category page and extract links to individual product pages
-            print(f"Starting to parse")
-
-            # Get the number of total pages
+            # print(f"Starting to parse")
 
             driver = response.request.meta['driver']
             threads = []
@@ -125,18 +110,18 @@ class MomoshopSpider(scrapy.Spider):
                             # For subsequent pages, click on the page number to load new content and extract links
                             js_code = f"document.querySelector('.pageArea a[{page_attrib}=\"{i}\"]').click();"  # Click the page number
                             driver.execute_script(js_code)
-                            print(f'page:{i}')
+                            # print(f'page:{i}')
 
                             # Wait for the new content to load after the click
                             wait = WebDriverWait(driver, 20)  # Adjust the timeout as needed
-                            updated_content_locator = (By.XPATH, "//*")  # Wait for product content(class name 'eachGood') loaded
+                            updated_content_locator = (By.XPATH, "//*")  # Wait for all element loaded
                             wait.until(ec.presence_of_element_located(updated_content_locator))
 
                             # Get the updated page source and extract product links
                             updated_content = driver.page_source
                             updated_response = scrapy.http.HtmlResponse(url=driver.current_url, body=updated_content,
                                                                         encoding='utf-8')
-                            tier4_content_links = updated_response.css(".eachGood ::attr(href)").getall()  # Get all product url
+                            tier4_content_links = updated_response.css(".eachGood ::attr(href)").getall()  # Get all tier4 content urls
 
                             # Start the threading to push the product links to SQS and/or S3
                             self.start_to_push(tier4_content_links, tier, threads)
@@ -152,7 +137,7 @@ class MomoshopSpider(scrapy.Spider):
         # The original class array => ['Home', '家電', '飲水設備', '\n            ', '本月主打', '元山★開館慶下殺']
         tier_array = "|".join(response.css("#bt_2_layout_NAV ul li ::text").getall()).replace(" ", "").replace("\n", "").replace("||", "|").split("|")
         tier_array.pop(0)
-        print(tier_array)
+        # print(tier_array)
         return tier_array
 
     @staticmethod
@@ -169,6 +154,8 @@ class MomoshopSpider(scrapy.Spider):
 
         # Create the folder if it doesn't exist
         s3.put_object(Bucket=s3_crawler_content_folder, Key=f"{folder_path}/")
+
+        # If you want to set folder with 4 tiers
 
         # Set the current folder path as the base path for the next iteration
         # base_path = folder_path
@@ -210,6 +197,7 @@ class MomoshopSpider(scrapy.Spider):
         # Send the message to SQS
         try:
             # print(message['MessageGroupId'])
+
             response = sqs.send_message(QueueUrl=queue_tier4_content_links,
                                         MessageGroupId=message['MessageGroupId'],
                                         MessageBody=message['MessageBody'],

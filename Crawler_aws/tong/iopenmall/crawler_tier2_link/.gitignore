@@ -1,0 +1,8 @@
+momocrawler/.idea
+momocrawler/__pycache__
+venv
+*.log
+momoshop.json
+.idea
+momocrawler/spiders/__pycache__
+momocrawler/.DS_Store

@@ -151,7 +151,22 @@ def main():
     # save figure (pma_??_Overall.png) with "values"
     plot_key = readcols["key"][readcols["fmt"]=="values"].tolist()
     plot_values(df_label, savedir, args.pma, numofCluster, plot_key, args.pmapath)
-
+    
+    
+    ### save entire file with mid and labels
+    df_label_copy = df_label.copy()
+    
+    # reverse label encoder
+    for objkey in readcols["key"][readcols["fmt"]=="object"]:
+        try:
+            if "area" not in objkey:
+                df_label_copy[objkey] =objectencoder[objkey][0].inverse_transform(df_label_copy[objkey].astype(int))
+        except:
+            pass
+    if "rfm_level" in df_label_copy.keys():
+        df_label_copy["rfm_level"] = objectencoder["rfm"][0].inverse_transform(df_label_copy["rfm_level"].astype(int)) 
+    
+    df_label_copy.to_csv(f"{savedir}/pma_{args.pma}_detail.csv", index = False, encoding = "utf-8-sig")   
     #===========================================
     ### Save results of each group 
     for i in range(numofCluster):
@@ -169,7 +184,7 @@ def main():
         for objkey in readcols["key"][readcols["fmt"]=="object"]:
             try:
                 if "area" not in objkey:
-                    df_group[objkey] =objectencoder[objkey][0].inverse_transform(df_group[objkey].astype(int))
+                    df_group[objkey] = objectencoder[objkey][0].inverse_transform(df_group[objkey].astype(int))
             except:
                 pass
         if "rfm_level" in df_group.keys():
@@ -178,12 +193,12 @@ def main():
         
         # save descriptive statistics of each column
         df_group_describe = df_group.describe()
-        df_group_describe = df_group_describe.drop(labels="count")
-        df_group_describe = df_group_describe.drop(columns="label")
-        df_group_describe = df_group_describe.drop(columns="pma_no_fin")
+        df_group_describe = df_group_describe.drop(labels  = "count")
+        df_group_describe = df_group_describe.drop(columns = "label")
+        df_group_describe = df_group_describe.drop(columns = "pma_no_fin")
         df_group_describe.to_csv(f"{savegroupdir}/00.Descriptive_statistics_G{str_group}.csv")
         
-        # save figure (pma_??_Overall.png) with "values"
+        # save figure with "object"
         plot_key = readcols["key"][readcols["fmt"]=="object"].tolist()
         if len(plot_key) -2 > 0:
             plot_object(df_group, savegroupdir, args.pma, str_group, plot_key, args.pmapath)
@@ -193,7 +208,7 @@ def main():
                         "figures for each group are not saved.")
         
         # save results with compelet columns and mid 
-        df_group.to_csv(f"{savegroupdir}/02.Detail_info_mid.csv", index=False)
+        df_group.to_csv(f"{savegroupdir}/02.Detail_info_mid.csv", index=False, encoding = "utf-8-sig")
 
 
     if args.verb:

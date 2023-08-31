@@ -1,5 +1,5 @@
 import os
-
+from fake_useragent import UserAgent
 # LOG_LEVEL = 'INFO'  # to only display errors
 # # LOG_LEVEL = 'ERROR'  # to only display errors
 # LOG_FORMAT = '%(levelname)s: %(message)s'
@@ -24,7 +24,7 @@ NEWSPIDER_MODULE = "momocrawler.spiders"
 # Configure a delay for requests for the same website (default: 0)
 # See https://docs.scrapy.org/en/latest/topics/settings.html#download-delay
 # See also autothrottle settings and docs
-DOWNLOAD_DELAY = 5
+DOWNLOAD_DELAY = 0
 # The download delay setting will honor only one of:
 #CONCURRENT_REQUESTS_PER_DOMAIN = 16
 #CONCURRENT_REQUESTS_PER_IP = 16
@@ -36,10 +36,17 @@ DOWNLOAD_DELAY = 5
 #TELNETCONSOLE_ENABLED = False
 
 # Override the default request headers:
-#DEFAULT_REQUEST_HEADERS = {
-#    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-#    "Accept-Language": "en",
-#}
+DEFAULT_REQUEST_HEADERS = {
+    "Host": "www.momoshop.com.tw",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Accept-Language': 'en-US,en;q=0.9,zh-TW;q=0.8,zh;q=0.7,zh-CN;q=0.6,ja;q=0.5',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Upgrade-Insecure-Requests': '1',
+    'User-Agent': UserAgent().random
+}
 
 # Enable or disable spider middlewares
 # See https://docs.scrapy.org/en/latest/topics/spider-middleware.html
@@ -73,14 +80,11 @@ SELENIUM_DRIVER_ARGUMENTS = [
     "--no-zygote",
     "--remote-debugging-port=9222",
     "--headless",
-    "--no-sandbox",
+    '--no-sandbox',
     "--disable-gpu",
     "--single-process",
     "--disable-dev-tools",
     "--disable-extensions",  # Disable extensions to use extensionLoadTimeout
-    "--disable-extensions-except="  # Add an empty extension list
-    "--load-extension=/path/to/your/extension",  # If you want to load a specific extension
-    "--extensionLoadTimeout=120000",  # Add the experimental option
     "--pageLoadStrategy=eager"
 ]
 SELENIUM_BROWSER_EXECUTABLE_PATH = os.getenv("CHROME_BROWSER_PATH")

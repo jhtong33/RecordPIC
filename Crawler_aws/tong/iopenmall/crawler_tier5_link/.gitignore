@@ -1,0 +1,7 @@
+.idea
+venv
+momocrawler/__pycache__
+momocrawler/spiders/__pycache__
+momocrawler/.DS_Store
+.DS_Store
+*.log

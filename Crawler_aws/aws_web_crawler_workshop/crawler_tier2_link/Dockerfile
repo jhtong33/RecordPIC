@@ -1,5 +1,3 @@
-#ARG FUNCTION_DIR="/src"
-# Use Python 3.9.17 as the base image
 FROM public.ecr.aws/lambda/python@sha256:10dbb67ede15b5fd516be87dd71c3f7968904b0b840235720486476b34ef9b67
 RUN yum install atk cups-libs gtk3 libXcomposite alsa-lib \
     libXcursor libXdamage libXext libXi libXrandr libXScrnSaver \

@@ -4,8 +4,6 @@
 # https://docs.scrapy.org/en/latest/topics/spider-middleware.html
 
 from scrapy import signals
-from fake_useragent import UserAgent
-from urllib.parse import urlparse
 
 
 class MomocrawlerSpiderMiddleware:
@@ -104,7 +102,6 @@ class MomocrawlerDownloaderMiddleware:
 
 class MomoUserAgentMiddleware(object):
     def __init__(self, ua_type):
-        self.ua = UserAgent()
         self.ua_type = ua_type
 
     @classmethod
@@ -112,26 +109,3 @@ class MomoUserAgentMiddleware(object):
         return cls(
             ua_type=crawler.settings.get('RANDOM_UA_TYPE', 'random')
         )
-
-    def process_request(self, request, spider):
-        def get_ua():
-            # 根據設定中 RANDOM_UA_TYPE 的值來隨機產生 UA
-            return getattr(self.ua, self.ua_type)
-
-        host = urlparse(request.url).netloc
-        request.headers.setdefault('Host', host)
-        request.headers.setdefault('Accept-Encoding', 'gzip, deflate, br')
-        request.headers.setdefault('Accept-Language', 'en-US,en;q=0.9,zh-TW;q=0.8,zh;q=0.7,zh-CN;q=0.6,ja;q=0.5')
-        request.headers.setdefault('Sec-Fetch-Dest', 'document')
-        request.headers.setdefault('Sec-Fetch-Mode', 'navigate')
-        request.headers.setdefault('Sec-Fetch-Site', 'none')
-        request.headers.setdefault('Upgrade-Insecure-Requests', '1')
-        request.headers.setdefault('User-Agent', get_ua())
-
-    # def process_response(self, request, response, spider):
-    #     '''測試用，確認有隨機產生 UA
-    #     實際使用時可以拿掉
-    #     '''
-    #     # spider.logger.info(f'User-Agent of [{request.url}] is [{request.headers["User-Agent"]}]')
-    #     spider.logger.info(f'headers is [{request.headers}]')
-    #     return response

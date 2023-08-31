@@ -1,35 +1,41 @@
 import hashlib
 import json
+import threading
+from urllib.parse import urlparse
+
 import scrapy
 from fake_useragent import UserAgent
 from scrapy_selenium import SeleniumRequest
-import logging
 import os
 import boto3
 import botocore
-from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as ec
 
+# Initialize the UserAgent and AWS clients
 ua = UserAgent()
 region = os.getenv('REGION')
-sqs = boto3.client('sqs', region_name=region, config=botocore.client.Config(max_pool_connections=50))
-s3 = boto3.client('s3', region_name=region, config=botocore.client.Config(max_pool_connections=50))
+sqs = boto3.client('sqs', region_name=region, config=botocore.client.Config(max_pool_connections=500))
+s3 = boto3.client('s3', region_name=region, config=botocore.client.Config(max_pool_connections=500))
 queue_tier2_links = os.getenv('QUEUE_TIER2_LINKS')
 queue_tier4_links = os.getenv('QUEUE_TIER4_LINKS')
 s3_bucket_name = os.getenv('S3_BUCKET_NAME')
 export_to_s3 = os.getenv('EXPORT_TO_S3')
 
 
-def check_tier(tier_dict: dict):
-    if "tier4" in tier_dict:
+# Function to determine the tier based on the URL
+def check_tier_by_url(url: str):
+    if url.find("DgrpCategory") != -1:
         return "tier4"
-    elif "tier3" in tier_dict:
+    elif url.find("MgrpCategory") != -1:
         return "tier3"
-    elif "tier2" in tier_dict:
+    elif url.find("LgrpCategory") != -1:
         return "tier2"
     else:
-        return "tier1"
+        return None
 
 
+# Function to calculate SHA-256 hash of a string
 def hash_function(original_string):
     # Create a hash object using SHA-256 algorithm
     hasher = hashlib.sha256()
@@ -44,56 +50,66 @@ def hash_function(original_string):
     return hasher.hexdigest()
 
 
+# Spider class for crawling momoshop.com.tw
 class MomoshopSpider(scrapy.Spider):
     name = "momoshop"
     allowed_domains = ["www.momoshop.com.tw"]
-    start_urls = []
     user_agent = ua.random
-    batch_size = 10  # batch size can be adjusted
-    receipt_handle = None
+    receipt_handle = ""
+    target_url = ""
+    runner = None
 
+    def __init__(self, url=None, runner=None, **kwargs):
+        self.target_url = url
+        self.runner = runner
+        super(MomoshopSpider, self).__init__(**kwargs)
+
+    # Function to handle errors during parsing
+    def error_handle(self, error):
+        print(error)
+        print(f'Invalid page:{self.target_url}')
+        self.runner.timeout = True
+
+    # Entry point for the spider
     def start_requests(self):
         print("Starting queue_tier2_links from start_requests")
-        response = sqs.receive_message(
-            QueueUrl=queue_tier2_links,
-            MaxNumberOfMessages=1,  # Retrieve only one message
-            WaitTimeSeconds=20  # Maximum time to wait for messages (long polling)
-        )
+        print(f'self.target_url:{self.target_url}')
+        headers = {"Host": urlparse(self.target_url).netloc,
+                   'Accept-Encoding': 'gzip, deflate, br',
+                   'Accept-Language': 'en-US,en;q=0.9,zh-TW;q=0.8,zh;q=0.7,zh-CN;q=0.6,ja;q=0.5',
+                   'Sec-Fetch-Dest': 'document',
+                   'Sec-Fetch-Mode': 'navigate',
+                   'Sec-Fetch-Site': 'none',
+                   'Upgrade-Insecure-Requests': '1',
+                   "Referer": "https://www.momoshop.com.tw/main/Main.jsp",
+                   "User-Agent": ua.random}
+        yield SeleniumRequest(url=self.target_url,
+                              headers=headers,
+                              callback=self.parse_tier2,
+                              wait_time=15,
+                              errback=self.error_handle,
+                              wait_until=ec.any_of(ec.presence_of_element_located((By.CLASS_NAME, 'first')),
+                                                   ec.presence_of_element_located((By.ID, 'backgroundContent'))))
 
-        # Process the received message if available
-        messages = response.get('Messages', [])
-        if messages:
-            message = messages[0]
-            message_body = message['Body']
-            self.receipt_handle = message['ReceiptHandle']
-
-            # Process the message body as needed
-            print(f"Received message: {message_body}")
-            try:
-                yield SeleniumRequest(url=message_body, callback=self.parse_tier2, wait_time=0)
-            except TimeoutException:
-                error_message = f"Request timeout for URL: {message_body}"
-                print(error_message)  # Log the error to AWS CloudWatch Logs
-                yield {'error': error_message}
-                yield self.start_requests()
-        else:
-            msg = "All consumed."
-            print(msg)
-            return msg
-
+    # Function to send a message to SQS
     @staticmethod
     def send_to_sqs(message):
         try:
-            response = sqs.send_message(QueueUrl=queue_tier4_links, MessageGroupId=message['MessageGroupId'],  MessageBody=message['MessageBody'])
+            # print(message['MessageGroupId'])
+            response = sqs.send_message(QueueUrl=queue_tier4_links,
+                                        MessageGroupId=message['MessageGroupId'],
+                                        MessageBody=message['MessageBody'],
+                                        MessageDeduplicationId=message['MessageGroupId'])
             if response["ResponseMetadata"]["HTTPStatusCode"] != 200:
                 print('Fail')
         except Exception as e:
             print(str(e))
 
+    # Function to send data to S3
     @staticmethod
-    def send_to_s3(m):
+    def send_to_s3(m, hash_id):
         try:
-            json_file_name = f'{hash_function(m["tier1_category_name"]+m["tier2_category_name"]+m["tier3_category_name"]+m["tier4_category_name"]+m["category_link"]+m["category_type"])}.json'
+            json_file_name = f'{hash_id}.json'
             response = s3.put_object(Bucket=s3_bucket_name, Key=json_file_name, Body=json.dumps(m, ensure_ascii=False))
             # check if it's successful
             if response["ResponseMetadata"]["HTTPStatusCode"] != 200:
@@ -101,11 +117,43 @@ class MomoshopSpider(scrapy.Spider):
         except Exception as e:
             print(str(e))
 
+    # Function to start pushing data to SQS and S3
+    def start_to_push(self, current_tier, hash_id, tier_dict, category_link, message_body):
+        if current_tier == "tier4":
+            print(f'tier4:{tier_dict.get("tier4", "")}')
+            message = {'Id': hash_id, 'MessageGroupId': hash_id,
+                       'MessageBody': json.dumps({
+                           'tier1_category_name': tier_dict["tier1"],
+                           'tier2_category_name': tier_dict.get("tier2", ""),
+                           'tier3_category_name': tier_dict.get("tier3", ""),
+                           'tier4_category_name': tier_dict.get("tier4", ""),
+                           'category_link': category_link if category_link.find(
+                               "javascript") == -1 else "",
+                           'category_type': current_tier}, ensure_ascii=False)}
+
+            # thread_sqs = threading.Thread(target=self.send_to_sqs, args=(message,))
+            # threads.append(thread_sqs)
+            # thread_sqs.start()
+            #
+            self.send_to_sqs(message)
+            # self.runner.category_info.append(message_body)
+
+            if export_to_s3 is not None and export_to_s3 == "On":
+                self.send_to_s3(message_body, hash_id)
+                # thread_s3 = threading.Thread(target=self.send_to_s3, args=(message_body, hash_id))
+                # threads.append(thread_s3)
+                # thread_s3.start()
+            #
+            # for thread in threads:
+            #     thread.join()
+
+    # Function to parse the tier 2 categories
     def parse_tier2(self, response):
         try:
             print("Starting to parse_tier2")
             categories = response.css('#bt_category_Content ul li')
             tier_dict = {}
+            threads = []
             if len(categories) > 0:
                 tier_path = response.css("#bt_2_layout_NAV ul li")
                 tier_index = 1
@@ -118,48 +166,42 @@ class MomoshopSpider(scrapy.Spider):
                             tier_dict[f'tier{tier_index}'] = tier.css("::text").get()
                         tier_index = tier_index+1
             if "tier1" in tier_dict:
-
                 for category in categories:
-                    class_name = category.css('::attr(class)').get()
-                    category_item_a = category.css('a').get()
-                    if category_item_a is not None and str(class_name).find("cateMLink") == -1:
-                        tier_dict['tier4'] = category.css("a::text").get()
-                        category_link = category.css('li a::attr(href)').get()
-                    else:
-                        tier_dict['tier3'] = category.css("a::text").get()
-                        category_link = category.css('li a::attr(href)').get() if not None else ""
-
-                    category_link = "https://www.momoshop.com.tw" + category_link
-                    # Generate a unique Id using the current timestamp and a UUID
-                    # message_id = f"{int(time.time())}-{str(uuid.uuid4())}"
-                    message_body = {'tier1_category_name': tier_dict["tier1"],
-                                    'tier2_category_name': tier_dict.get("tier2", ""),
-                                    'tier3_category_name': tier_dict.get("tier3", ""),
-                                    'tier4_category_name': tier_dict.get("tier4", ""),
-                                    'category_link': category_link if category_link.find("javascript") == -1 else "",
-                                    'category_type': check_tier(tier_dict)}
-                    hash_id = hash_function(tier_dict["tier1"] + category_link + tier_dict.get("tier2", "")
-                                            + tier_dict.get("tier3", "") + tier_dict.get("tier4", "")
-                                            + category_link if category_link.find("javascript") == -1 else ""
-                                            + check_tier(tier_dict))
-                    message = {'Id': hash_id, 'MessageGroupId': hash_id,
-                                              'MessageBody': json.dumps({
-                                               'tier1_category_name': tier_dict["tier1"],
-                                               'tier2_category_name': tier_dict.get("tier2", ""),
-                                               'tier3_category_name': tier_dict.get("tier3", ""),
-                                               'tier4_category_name': tier_dict.get("tier4", ""),
-                                               'category_link': category_link if category_link.find("javascript") == -1 else "",
-                                               'category_type': check_tier(tier_dict)}, ensure_ascii=False)}
-                    self.send_to_sqs(message)
-                    if export_to_s3 is not None and export_to_s3 == "On":
-                        self.send_to_s3(message_body)
+                    # self.parse_process(response, category, tier_dict)
+                    thread = threading.Thread(target=self.parse_process, args=(category, tier_dict,))
+                    threads.append(thread)
+                    thread.start()
+                for thread in threads:
+                    thread.join()
         except Exception as e:
-            logging.error(e)
+            print(e)
         finally:
-            # Delete the message from the queue
-            print("Deleting queue_tier2_links from start_requests")
-            sqs.delete_message(
-                QueueUrl=queue_tier2_links,
-                ReceiptHandle=self.receipt_handle
-            )
-            print("queue_tier2_links has been deleted.")
+            self.runner.timeout = False
+
+    # Function to process individual category items
+    def parse_process(self, category, tier_dict):
+
+        category_item_a = category.css('a').get()
+        category_link = ""
+        if category_item_a is not None:
+            category_link = category.css('li a::attr(href)').get()
+
+        current_tier = check_tier_by_url(category_link)
+
+        if current_tier == "tier4":
+            tier_dict['tier4'] = category.css("a::text").get()
+        elif current_tier == "tier3":
+            tier_dict['tier3'] = category.css("a::text").get()
+
+        if tier_dict is not None:
+            category_link = "https://www.momoshop.com.tw" + category_link if category_link.find("momoshop.com.tw") == -1 else category_link
+            message_body = {'tier1_category_name': tier_dict["tier1"],
+                            'tier2_category_name': tier_dict.get("tier2", ""),
+                            'tier3_category_name': tier_dict.get("tier3", ""),
+                            'tier4_category_name': tier_dict.get("tier4", ""),
+                            # https://ecm.momoshop.com.tw/category/DgrpCategory.jsp?d_code=1704300019&p_orderType=6&showType=chessboardType&sourcePageType=4
+                            'category_link': category_link.replace("ecm.momoshop.com.tw", "www.momoshop.com.tw"),
+                            'category_type': current_tier}
+
+            hash_id = hash_function(str(category_link))
+            self.start_to_push(current_tier, hash_id, tier_dict, category_link, message_body)

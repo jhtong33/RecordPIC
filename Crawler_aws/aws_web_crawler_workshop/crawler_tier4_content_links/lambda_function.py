@@ -62,7 +62,7 @@ class LambdaRunner:
     def get_tier4_url_from_sqs(self):
         response = sqs.receive_message(
             QueueUrl=queue_tier4_links,
-            MaxNumberOfMessages=1,  # Retrieve 10 messages
+            MaxNumberOfMessages=1,  # Retrieve 1 messages
             WaitTimeSeconds=0  # Maximum time to wait for messages (long polling)
         )
         messages = response.get('Messages', [])
@@ -84,14 +84,14 @@ class LambdaRunner:
 def handler(event, context):
     try:
         # Check if the function was triggered by an HTTP request or Lambda event
-        print(f"Starting to crawl:{datetime.datetime.now()}")
+        # print(f"Starting to crawl:{datetime.datetime.now()}")
         times = 0
         if "statusCode" not in event:
             # If the function was not triggered by retry
             runner = LambdaRunner("")
             runner.run_spider()
             runner.wait_for_completion()
-            print(f"End date and time:{datetime.datetime.now()}")
+            # print(f"End date and time:{datetime.datetime.now()}")
         else:
             times = int(event["times"])
             if times < 4:
@@ -99,7 +99,7 @@ def handler(event, context):
                 runner.input_url = event["category_link"]
                 runner.run_spider()
                 runner.wait_for_completion()
-                print(f"End date and time:{datetime.datetime.now()}")
+                # print(f"End date and time:{datetime.datetime.now()}")
             else:
                 print(f'Retry too many times, 429:{event["category_link"]}')
                 # If the retry count is 4 or more, return an HTTP 429 response indicating Too Many Requests
@@ -112,17 +112,15 @@ def handler(event, context):
 
         times = times + 1
         if not runner.timeout:
-            print('success')
+            # print('success')
             # If the LambdaRunner completed successfully, return an HTTP 200 response with the completion details
             return {
-                'statusCode': 200,
-                'body': 'Completed!',
-                'times': times,
-                # "category_link": event["category_link"],
-                # "category_info": runner.category_info
+                'statusCode': 200
+                # 'body': 'Completed!',
+                # 'times': times,
             }
         else:
-            print('timeout')
+            # print('timeout')
             # If the LambdaRunner timed out, return an HTTP 408 response with the category objects
             return {
                 'statusCode': 408,

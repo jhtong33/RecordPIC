@@ -1,8 +1,4 @@
 import json
-import os
-import botocore
-from fake_useragent import UserAgent
-import boto3
 from scrapy.crawler import CrawlerRunner
 from scrapy.utils.project import get_project_settings
 from crochet import setup
@@ -11,11 +7,6 @@ from momocrawler.spiders.momoshop import MomoshopSpider
 
 # Initialize Crochet
 setup()
-
-ua = UserAgent()
-region = os.getenv('REGION')
-sqs = boto3.client('sqs', region_name=region, config=botocore.client.Config(max_pool_connections=500))
-queue_tier2_links = os.getenv('QUEUE_TIER2_LINKS')
 
 
 class LambdaRunner:
@@ -30,9 +21,6 @@ class LambdaRunner:
         settings = get_project_settings()
         runner = CrawlerRunner(settings)
 
-        # Create an instance of the spider class
-        spider_cls = MomoshopSpider
-
         # Callback function to handle the spider results
         def handle_results(result):
             self.results.append(result)
@@ -42,7 +30,7 @@ class LambdaRunner:
                 self.finished.set()
 
         # Start the first spider run
-        deferred = runner.crawl(spider_cls, self)
+        deferred = runner.crawl(MomoshopSpider, self)
         deferred.addCallback(handle_results)
 
         # Start the reactor
@@ -67,14 +55,14 @@ def handler(event, context):
         # Aggregate input JSON format
         for category_link in runner.category_links:
             queue_list.append({'category_link': category_link})
-            # print({'category_links': category_link})
         print(f'len(queue_list):{len(runner.category_links)}')
+        print("success")
         return {
             'statusCode': 200,
             'body': {'message': queue_list}
         }
     except Exception as e:
-        print(str(e))
+        print(f'fail:{str(e)}')
         return {
             'statusCode': 500,
             'body': json.dumps({'error': str(e)})

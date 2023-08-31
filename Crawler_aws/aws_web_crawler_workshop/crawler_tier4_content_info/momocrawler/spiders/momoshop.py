@@ -2,8 +2,6 @@ import datetime
 import hashlib
 import json
 import os
-from urllib.parse import urlparse
-
 from scrapy import Selector
 from scrapy_selenium import SeleniumRequest
 import scrapy
@@ -48,25 +46,14 @@ class MomoshopSpider(scrapy.Spider):
 
     def start_requests(self):
         # Start the initial request to fetch category links
-        print("Starting start_requests")
+        # print("Starting start_requests")
         if self.runner.target_url == "":
             tier4_content_link = json.loads(self.runner.tier4_content_object['Body'])['tier4_content_link']
         else:
             tier4_content_link = self.runner.target_url
-
-        headers = {"Host": urlparse(tier4_content_link).netloc,
-                   'Accept-Encoding': 'gzip, deflate, br',
-                   'Accept-Language': 'en-US,en;q=0.9,zh-TW;q=0.8,zh;q=0.7,zh-CN;q=0.6,ja;q=0.5',
-                   'Sec-Fetch-Dest': 'document',
-                   'Sec-Fetch-Mode': 'navigate',
-                   'Sec-Fetch-Site': 'none',
-                   'Upgrade-Insecure-Requests': '1',
-                   "Referer": "https://www.momoshop.com.tw/main/Main.jsp",
-                   "User-Agent": ua.random}
-        print(f'tier4_content_link:{tier4_content_link}')
+        # print(f'tier4_content_link:{tier4_content_link}')
         # https://www.momoshop.com.tw/goods/GoodsDetail.jsp?i_code=10670127&str_category_code=1501202193&ctype=B&Area=DgrpCategory&sourcePageType=4
         yield SeleniumRequest(url=tier4_content_link,
-                              headers=headers,
                               callback=self.parse,
                               wait_time=15,
                               errback=self.error_handle,
@@ -78,7 +65,7 @@ class MomoshopSpider(scrapy.Spider):
         # The original class array => ['Home', '家電', '飲水設備', '\n            ', '本月主打', '元山★開館慶下殺']
         tier_array = "|".join(response.css("#bt_2_layout_NAV ul li ::text").getall()).replace(" ", "").replace("\n", "").replace("||", "|").split("|")
         tier_array.pop(0)
-        print(tier_array)
+        # print(tier_array)
         return tier_array
 
     def error_handle(self, error):
@@ -88,7 +75,7 @@ class MomoshopSpider(scrapy.Spider):
     def parse(self, response, **kwargs):
         try:
             # Parse the main category page and extract links to individual product pages
-            print(f"Starting to parse")
+            # print(f"Starting to parse")
             selector = Selector(response)
             driver = response.request.meta['driver']
             content_info_tier = self.set_all_tier(response)
@@ -105,7 +92,7 @@ class MomoshopSpider(scrapy.Spider):
             # 品牌名稱
             discounted_price = None
 
-            # 折扣後價格
+            # 價格列表
             price_list = selector.css(".prdPrice li")
 
             for price in price_list:
@@ -119,7 +106,7 @@ class MomoshopSpider(scrapy.Spider):
             # <span id="osmGoodsName"> <a class="productName" href="/search/searchShop.jsp?keyword=%E6%9E%97%E5%85%A7&amp;brand=%E6%9E%97%E5%85%A7&amp;brandNo=20160808160045893">林內</a> 台爐式內焰二口爐輕量爐架(RTS-N201S原廠安裝)</span>
             # 商品名稱
             item_name = "".join(selector.css("#osmGoodsName ::text").extract()).strip()
-            print(item_name)
+            # print(item_name)
 
             # 活動
             activity = "".join(selector.css(".ineventArea li ::text").extract()).replace(' ', '').replace('\n', '')
@@ -160,7 +147,7 @@ class MomoshopSpider(scrapy.Spider):
                 # Wait for the new content to load after the click
                 # Adjust the timeout as needed
                 wait = WebDriverWait(driver, 15)
-                # # Wait for goods comment is ready for click
+                # Wait for goods comment is ready for click
                 wait.until(ec.presence_of_element_located((By.XPATH, "//*")))
 
                 # Get the updated page source and extract product links
@@ -203,25 +190,8 @@ class MomoshopSpider(scrapy.Spider):
                             updated_selector = Selector(scrapy.http.HtmlResponse(url=driver.current_url,
                                                                                  body=updated_content,
                                                                                  encoding='utf-8'))
-                            print(f'page:{i}')
+                            # print(f'page:{i}')
                             self.fetch_goods_commend(updated_selector, review_card_list)
-
-                        # has_next_page = True
-                        # while has_next_page:
-                        #     first_page_control = page_control[0]
-                        #     second_page_control = page_control[1] if len(page_control) > 1 else None
-                        #     if first_page_control.css('a::text').get() == "下一頁":
-                        #         # Get the next page index
-                        #         page_index = first_page_control.css("dd::attr(pageidx)").get()
-                        #         print(f'page_index:{page_index}')
-                        #         page_control = self.click_to_next_page(page_index, driver, review_card_list)
-                        #     elif second_page_control is None:
-                        #         has_next_page = False
-                        #     else:
-                        #         # Get the next page index
-                        #         page_index = second_page_control.css("dd::attr(pageidx)").get()
-                        #         # print(f'page_index:{page_index}')
-                        #         page_control = self.click_to_next_page(page_index, driver, review_card_list)
 
             goods_commend["review_card_list"] = review_card_list
 
@@ -251,26 +221,8 @@ class MomoshopSpider(scrapy.Spider):
             hash_id = hash_function(response.url)
             self.send_to_s3(content_info, hash_id)
 
-            # output the result in the local
-            # with open('output.json', 'w') as json_file:
-            #     json_file.write(json.dumps(content_info, ensure_ascii=False))
-
         except Exception as e:
             print(str(e))
-
-    def click_to_next_page(self, page_index: str, driver, review_card_list):
-        # Send the javascript to click
-        js_code = f"[...document.querySelectorAll('.pageArea a')].find(a => a.textContent.trim() === '{page_index}').click();"   # Click the page number
-        driver.execute_script(js_code)
-
-        # Get the updated page source and extract product links
-        updated_content = driver.page_source
-        updated_selector = Selector(scrapy.http.HtmlResponse(url=driver.current_url,
-                                                             body=updated_content,
-                                                             encoding='utf-8'))
-
-        self.fetch_goods_commend(updated_selector, review_card_list)
-        return updated_selector.css('.pageArea dd')
 
     @staticmethod
     def fetch_goods_commend(selector: Selector, review_card_list):
@@ -293,12 +245,14 @@ class MomoshopSpider(scrapy.Spider):
             json_file_name = f'{hash_id}.json'
 
             # Construct the S3 key including the folder name
+            # ex: content/家電
             s3_key = f'content/{message["tier1"]}/{json_file_name}'
 
             response = s3.put_object(Bucket=s3_crawler_content_folder, Key=s3_key,
                                      Body=json.dumps(message, ensure_ascii=False))
             # check if it's successful
             if response["ResponseMetadata"]["HTTPStatusCode"] != 200:
-                print('Fail')
+                print('send_to_s3 fail')
         except Exception as e:
+            print('send_to_s3 Exception')
             print(str(e))

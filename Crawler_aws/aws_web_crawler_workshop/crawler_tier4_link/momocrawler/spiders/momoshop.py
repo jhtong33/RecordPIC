@@ -1,23 +1,23 @@
 import hashlib
 import json
 import threading
-from urllib.parse import urlparse
-
 import scrapy
 from fake_useragent import UserAgent
+from scrapy import Selector
+from scrapy.http import HtmlResponse
 from scrapy_selenium import SeleniumRequest
 import os
 import boto3
 import botocore
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as ec
+from selenium.webdriver.support.wait import WebDriverWait
 
 # Initialize the UserAgent and AWS clients
 ua = UserAgent()
 region = os.getenv('REGION')
 sqs = boto3.client('sqs', region_name=region, config=botocore.client.Config(max_pool_connections=500))
 s3 = boto3.client('s3', region_name=region, config=botocore.client.Config(max_pool_connections=500))
-queue_tier2_links = os.getenv('QUEUE_TIER2_LINKS')
 queue_tier4_links = os.getenv('QUEUE_TIER4_LINKS')
 s3_bucket_name = os.getenv('S3_BUCKET_NAME')
 export_to_s3 = os.getenv('EXPORT_TO_S3')
@@ -74,22 +74,13 @@ class MomoshopSpider(scrapy.Spider):
     def start_requests(self):
         print("Starting queue_tier2_links from start_requests")
         print(f'self.target_url:{self.target_url}')
-        headers = {"Host": urlparse(self.target_url).netloc,
-                   'Accept-Encoding': 'gzip, deflate, br',
-                   'Accept-Language': 'en-US,en;q=0.9,zh-TW;q=0.8,zh;q=0.7,zh-CN;q=0.6,ja;q=0.5',
-                   'Sec-Fetch-Dest': 'document',
-                   'Sec-Fetch-Mode': 'navigate',
-                   'Sec-Fetch-Site': 'none',
-                   'Upgrade-Insecure-Requests': '1',
-                   "Referer": "https://www.momoshop.com.tw/main/Main.jsp",
-                   "User-Agent": ua.random}
         yield SeleniumRequest(url=self.target_url,
-                              headers=headers,
                               callback=self.parse_tier2,
                               wait_time=15,
                               errback=self.error_handle,
-                              wait_until=ec.any_of(ec.presence_of_element_located((By.CLASS_NAME, 'first')),
-                                                   ec.presence_of_element_located((By.ID, 'backgroundContent'))))
+                              wait_until=ec.any_of(ec.presence_of_element_located((By.CLASS_NAME, 'first')),  # Wait for the tier path loaded
+                                                   ec.presence_of_element_located((By.ID, 'backgroundContent')),  # Wait for the landing page loaded
+                                                   ec.presence_of_element_located((By.CLASS_NAME, "year18Ban"))))  # Wait for the yes18years paged loaded
 
     # Function to send a message to SQS
     @staticmethod
@@ -130,27 +121,36 @@ class MomoshopSpider(scrapy.Spider):
                            'category_link': category_link if category_link.find(
                                "javascript") == -1 else "",
                            'category_type': current_tier}, ensure_ascii=False)}
-
-            # thread_sqs = threading.Thread(target=self.send_to_sqs, args=(message,))
-            # threads.append(thread_sqs)
-            # thread_sqs.start()
-            #
             self.send_to_sqs(message)
             # self.runner.category_info.append(message_body)
 
             if export_to_s3 is not None and export_to_s3 == "On":
                 self.send_to_s3(message_body, hash_id)
-                # thread_s3 = threading.Thread(target=self.send_to_s3, args=(message_body, hash_id))
-                # threads.append(thread_s3)
-                # thread_s3.start()
-            #
-            # for thread in threads:
-            #     thread.join()
 
     # Function to parse the tier 2 categories
-    def parse_tier2(self, response):
+    def parse_tier2(self, response: HtmlResponse):
         try:
             print("Starting to parse_tier2")
+
+            # Check yes18years page and click it to go to the next page
+            if response.url.find("AgeCheck") != -1:
+                driver = response.request.meta['driver']
+
+                js_code = "document.querySelector(\".yes18years\").click();"  # Click to the next page
+                driver.execute_script(js_code)
+
+                # Wait for the new content to load after the click
+                # Adjust the timeout as needed
+                wait = WebDriverWait(driver, 15)
+                # # Wait for goods comment is ready for click
+                wait.until(ec.presence_of_element_located((By.XPATH, "//*")))
+
+                # Get the updated page source and extract product links
+                updated_content = driver.page_source
+                response = Selector(scrapy.http.HtmlResponse(url=driver.current_url,
+                                                             body=updated_content,
+                                                             encoding='utf-8'))
+
             categories = response.css('#bt_category_Content ul li')
             tier_dict = {}
             threads = []
@@ -195,12 +195,14 @@ class MomoshopSpider(scrapy.Spider):
 
         if tier_dict is not None:
             category_link = "https://www.momoshop.com.tw" + category_link if category_link.find("momoshop.com.tw") == -1 else category_link
+
+            # https://ecm.momoshop.com.tw/category/DgrpCategory.jsp?d_code=1704300019&p_orderType=6&showType=chessboardType&sourcePageType=4
+            category_link = category_link.replace("ecm.momoshop.com.tw", "www.momoshop.com.tw")
             message_body = {'tier1_category_name': tier_dict["tier1"],
                             'tier2_category_name': tier_dict.get("tier2", ""),
                             'tier3_category_name': tier_dict.get("tier3", ""),
                             'tier4_category_name': tier_dict.get("tier4", ""),
-                            # https://ecm.momoshop.com.tw/category/DgrpCategory.jsp?d_code=1704300019&p_orderType=6&showType=chessboardType&sourcePageType=4
-                            'category_link': category_link.replace("ecm.momoshop.com.tw", "www.momoshop.com.tw"),
+                            'category_link': category_link,
                             'category_type': current_tier}
 
             hash_id = hash_function(str(category_link))
